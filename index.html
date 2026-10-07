@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Word-Level RNN Playground</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1f2937;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --accent-2: #3b82f6;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --border: rgba(255,255,255,0.08);
+      --shadow: 0 12px 30px rgba(0,0,0,0.35);
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      background: linear-gradient(180deg, #0b1220 0%, #111827 100%);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      min-height: 100vh;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .app {
+      width: min(980px, 100%);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(15, 23, 42, 0.92);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(17,24,39,0.88);
+    }
+
+    .title {
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    .status {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .content {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 0;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--border);
+      padding: 18px;
+      background: rgba(17,24,39,0.7);
+    }
+
+    .panel {
+      margin-bottom: 18px;
+      background: rgba(31,41,55,0.4);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 8px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    input[type="file"],
+    input[type="number"],
+    textarea,
+    button {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(15,23,42,0.9);
+      color: var(--text);
+      padding: 10px 12px;
+      font: inherit;
+    }
+
+    input[type="number"] {
+      appearance: textfield;
+    }
+
+    button {
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent-2), #60a5fa);
+      border: none;
+      font-weight: 700;
+      transition: transform 0.1s ease, opacity 0.2s ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    .secondary {
+      background: linear-gradient(135deg, #374151, #4b5563);
+    }
+
+    .danger {
+      background: linear-gradient(135deg, #ef4444, #f97316);
+    }
+
+    .inline {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .main {
+      padding: 18px;
+      background: rgba(15, 23, 42, 0.4);
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .chip {
+      background: rgba(34,197,94,0.12);
+      color: #bbf7d0;
+      border: 1px solid rgba(34,197,94,0.28);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-weight: 600;
+    }
+
+    textarea {
+      min-height: 270px;
+      resize: vertical;
+      line-height: 1.6;
+      padding: 12px 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .controls > * { flex: 1 1 190px; }
+
+    .small {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    @media (max-width: 760px) {
+      .content {
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="title">Word-Level RNN</div>
+      <div id="statusBadge" class="status">Ready</div>
+    </div>
+
+    <div class="content">
+      <aside class="sidebar">
+        <div class="panel">
+          <label for="fileInput">Upload training text (≤ 20MB)</label>
+          <input id="fileInput" type="file" accept=".txt,.md,.csv,.json,.js,.html,.log,text/plain,application/json,application/octet-stream" />
+        </div>
+
+        <div class="panel">
+          <label>Training settings</label>
+          <div class="inline">
+            <div>
+              <label for="hiddenSize" style="margin-bottom:4px;">Hidden</label>
+              <input id="hiddenSize" type="number" min="16" max="256" step="4" value="64" />
+            </div>
+            <div>
+              <label for="learningRate" style="margin-bottom:4px;">LR</label>
+              <input id="learningRate" type="number" min="0.001" max="1" step="0.001" value="0.08" />
+            </div>
+          </div>
+
+          <div style="height:10px"></div>
+
+          <div class="inline">
+            <div>
+              <label for="epochs" style="margin-bottom:4px;">Epochs</label>
+              <input id="epochs" type="number" min="1" max="1000" step="1" value="80" />
+            </div>
+            <div>
+              <label for="temperature" style="margin-bottom:4px;">Temp</label>
+              <input id="temperature" type="number" min="0.1" max="2.5" step="0.05" value="0.9" />
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <label>Prompt</label>
+          <textarea id="seedText" rows="4" placeholder="Start text to condition generation...">the world was</textarea>
+          <div class="controls" style="margin-top: 12px;">
+            <button id="trainButton">Train</button>
+            <button id="generateButton" class="secondary">Generate</button>
+          </div>
+          <div class="controls" style="margin-top:10px;">
+            <button id="resetButton" class="danger">Reset</button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="meta">
+          <div class="chip" id="vocabChip">Vocab: 0</div>
+          <div class="chip" id="tokensChip">Tokens: 0</div>
+          <div class="chip" id="lossChip">Loss: n/a</div>
+        </div>
+
+        <textarea id="outputText" readonly spellcheck="false" placeholder="Training output will appear here..."></textarea>
+
+        <div class="controls">
+          <div class="small" id="infoText">
+            Upload a text file or paste content into the prompt box, then train the model.
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const MAX_FILE_SIZE = 20 * 1024 * 1024;
+    const MAX_VOCAB = 4000;
+
+    const $ = (id) => document.getElementById(id);
+    const statusBadge = $("statusBadge");
+    const outputText = $("outputText");
+    const fileInput = $("fileInput");
+    const trainButton = $("trainButton");
+    const generateButton = $("generateButton");
+    const resetButton = $("resetButton");
+    const seedText = $("seedText");
+    const hiddenSizeInput = $("hiddenSize");
+    const learningRateInput = $("learningRate");
+    const epochsInput = $("epochs");
+    const temperatureInput = $("temperature");
+    const vocabChip = $("vocabChip");
+    const tokensChip = $("tokensChip");
+    const lossChip = $("lossChip");
+    const infoText = $("infoText");
+
+    let currentModel = null;
+    let currentText = "";
+    let isTraining = false;
+
+    function setStatus(text, tone = "neutral") {
+      statusBadge.textContent = text;
+      const colors = {
+        neutral: "var(--muted)",
+        success: "#86efac",
+        warning: "#fbbf24",
+        danger: "#fca5a5",
+        info: "#93c5fd"
+      };
+      statusBadge.style.color = colors[tone] || colors.neutral;
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(Math.max(value, min), max);
+    }
+
+    function createMatrix(rows, cols) {
+      return new Float32Array(rows * cols);
+    }
+
+    function randomNormal(scale = 0.08) {
+      return (Math.random() - 0.5) * 2 * scale;
+    }
+
+    function softmax(logits) {
+      const max = Math.max(...logits);
+      const exps = logits.map((v) => Math.exp(v - max));
+      const total = exps.reduce((a, b) => a + b, 0);
+      return exps.map((v) => v / (total || 1));
+    }
+
+    function tokenizeText(text) {
+      const matches = text.toLowerCase().match(/[a-z0-9']+/g);
+      return matches || [];
+    }
+
+    function buildVocabulary(tokens) {
+      const freq = new Map();
+      for (const t of tokens) {
+        freq.set(t, (freq.get(t) || 0) + 1);
+      }
+      const entries = [...freq.entries()].sort((a, b) => b[1] - a[1]);
+      return entries.slice(0, MAX_VOCAB).map(([word]) => word);
+    }
+
+    class WordRNN {
+      constructor(vocabSize, hiddenSize, learningRate) {
+        this.vocabSize = vocabSize;
+        this.hiddenSize = hiddenSize;
+        this.learningRate = learningRate;
+
+        this.E = createMatrix(vocabSize, hiddenSize);
+        this.W_xh = createMatrix(hiddenSize, hiddenSize);
+        this.W_hh = createMatrix(hiddenSize, hiddenSize);
+        this.b_h = new Float32Array(hiddenSize);
+        this.W_hy = createMatrix(vocabSize, hiddenSize);
+        this.b_y = new Float32Array(vocabSize);
+
+        this.init();
+      }
+
+      init() {
+        const scaleE = 0.08;
+        const scaleR = 0.08;
+
+        for (let i = 0; i < this.E.length; i++) {
+          this.E[i] = randomNormal(scaleE);
+        }
+        for (let i = 0; i < this.W_xh.length; i++) this.W_xh[i] = randomNormal(scaleR);
+        for (let i = 0; i < this.W_hh.length; i++) this.W_hh[i] = randomNormal(scaleR);
+        for (let i = 0; i < this.W_hy.length; i++) this.W_hy[i] = randomNormal(scaleR / 2);
+      }
+
+      forwardToken(tokenIndex, prevHidden) {
+        const x = new Float32Array(this.hiddenSize);
+        for (let j = 0; j < this.hiddenSize; j++) {
+          x[j] = this.E[tokenIndex * this.hiddenSize + j];
+        }
+
+        const h = new Float32Array(this.hiddenSize);
+        for (let i = 0; i < this.hiddenSize; i++) {
+          let sum = this.b_h[i];
+          for (let j = 0; j < this.hiddenSize; j++) {
+            sum += this.W_xh[i * this.hiddenSize + j] * x[j];
+            sum += this.W_hh[i * this.hiddenSize + j] * prevHidden[j];
+          }
+          h[i] = Math.tanh(sum);
+        }
+
+        const logits = new Float32Array(this.vocabSize);
+        for (let o = 0; o < this.vocabSize; o++) {
+          let sum = this.b_y[o];
+          for (let j = 0; j < this.hiddenSize; j++) {
+            sum += this.W_hy[o * this.hiddenSize + j] * h[j];
+          }
+          logits[o] = sum;
+        }
+
+        const probs = softmax(Array.from(logits));
+        return { x, h, probs };
+      }
+
+      trainSequence(sequence) {
+        if (sequence.length < 2) return 0;
+
+        const hiddenStates = [new Float32Array(this.hiddenSize)];
+        const tokenInputs = [];
+        const probsList = [];
+
+        let hPrev = new Float32Array(this.hiddenSize);
+        let loss = 0;
+
+        for (let i = 0; i < sequence.length - 1; i++) {
+          const tokenIndex = sequence[i];
+          const step = this.forwardToken(tokenIndex, hPrev);
+          hiddenStates.push(step.h);
+          tokenInputs.push(step.x);
+          probsList.push(step.probs);
+
+          const target = sequence[i + 1];
+          const p = step.probs[target] + 1e-8;
+          loss -= Math.log(p);
+          hPrev = step.h;
+        }
+
+        const gradE = createMatrix(this.vocabSize, this.hiddenSize);
+        const gradW_xh = createMatrix(this.hiddenSize, this.hiddenSize);
+        const gradW_hh = createMatrix(this.hiddenSize, this.hiddenSize);
+        const gradb_h = new Float32Array(this.hiddenSize);
+        const gradW_hy = createMatrix(this.vocabSize, this.hiddenSize);
+        const gradb_y = new Float32Array(this.vocabSize);
+
+        let dHnext = new Float32Array(this.hiddenSize);
+
+        for (let i = sequence.length - 2; i >= 0; i--) {
+          const target = sequence[i + 1];
+          const h = hiddenStates[i + 1];
+          const x = tokenInputs[i];
+          const probs = probsList[i];
+
+          const dLogits = new Float32Array(this.vocabSize);
+          for (let o = 0; o < this.vocabSize; o++) {
+            dLogits[o] = probs[o];
+          }
+          dLogits[target] -= 1;
+
+          for (let o = 0; o < this.vocabSize; o++) {
+            gradb_y[o] += dLogits[o];
+            for (let j = 0; j < this.hiddenSize; j++) {
+              gradW_hy[o * this.hiddenSize + j] += dLogits[o] * h[j];
+            }
+          }
+
+          const dH = new Float32Array(this.hiddenSize);
+          for (let j = 0; j < this.hiddenSize; j++) {
+            let sum = dHnext[j];
+            for (let o = 0; o < this.vocabSize; o++) {
+              sum += dLogits[o] * this.W_hy[o * this.hiddenSize + j];
+            }
+            dH[j] = sum;
+          }
+
+          const dPre = new Float32Array(this.hiddenSize);
+          for (let j = 0; j < this.hiddenSize; j++) {
+            dPre[j] = dH[j] * (1 - h[j] * h[j]);
+          }
+
+          for (let i2 = 0; i2 < this.hiddenSize; i2++) {
+            gradb_h[i2] += dPre[i2];
+            for (let j = 0; j < this.hiddenSize; j++) {
+              gradW_xh[i2 * this.hiddenSize + j] += dPre[i2] * x[j];
+              gradW_hh[i2 * this.hiddenSize + j] += dPre[i2] * hiddenStates[i][j];
+            }
+          }
+
+          const wordIndex = sequence[i];
+          for (let j = 0; j < this.hiddenSize; j++) {
+            let sum = 0;
+            for (let i2 = 0; i2 < this.hiddenSize; i2++) {
+              sum += this.W_xh[i2 * this.hiddenSize + j] * dPre[i2];
+            }
+            gradE[wordIndex * this.hiddenSize + j] += sum;
+          }
+
+          dHnext = new Float32Array(this.hiddenSize);
+          for (let j = 0; j < this.hiddenSize; j++) {
+            let sum = 0;
+            for (let i2 = 0; i2 < this.hiddenSize; i2++) {
+              sum += this.W_hh[i2 * this.hiddenSize + j] * dPre[i2];
+            }
+            dHnext[j] = sum;
+          }
+        }
+
+        const lr = this.learningRate;
+        for (let i = 0; i < this.E.length; i++) this.E[i] -= lr * gradE[i];
+        for (let i = 0; i < this.W_xh.length; i++) this.W_xh[i] -= lr * gradW_xh[i];
+        for (let i = 0; i < this.W_hh.length; i++) this.W_hh[i] -= lr * gradW_hh[i];
+        for (let i = 0; i < this.b_h.length; i++) this.b_h[i] -= lr * gradb_h[i];
+        for (let i = 0; i < this.W_hy.length; i++) this.W_hy[i] -= lr * gradW_hy[i];
+        for (let i = 0; i < this.b_y.length; i++) this.b_y[i] -= lr * gradb_y[i];
+
+        return loss / Math.max(1, sequence.length - 1);
+      }
+
+      sampleFromPrompt(promptIndices, length, temperature = 0.9) {
+        if (!promptIndices.length) return [0];
+
+        let h = new Float32Array(this.hiddenSize);
+        let generated = [...promptIndices];
+
+        for (let i = 0; i < promptIndices.length; i++) {
+          const step = this.forwardToken(promptIndices[i], h);
+          h = step.h;
+        }
+
+        let nextWord = promptIndices[promptIndices.length - 1];
+
+        for (let t = 0; t < length; t++) {
+          const step = this.forwardToken(nextWord, h);
+          const logits = step.logits;
+          const scaled = logits.map((v) => v / (temperature || 0.001));
+          const probs = softmax(scaled);
+
+          let sampled = 0;
+          const r = Math.random();
+          let acc = 0;
+          for (let i = 0; i < probs.length; i++) {
+            acc += probs[i];
+            if (r <= acc) {
+              sampled = i;
+              break;
+            }
+          }
+
+          generated.push(sampled);
+          nextWord = sampled;
+          h = step.h;
+        }
+
+        return generated;
+      }
+    }
+
+    function parseTrainData(rawText) {
+      const tokens = tokenizeText(rawText);
+      if (!tokens.length) {
+        throw new Error("No valid words found in the uploaded file or prompt text.");
+      }
+      return tokens;
+    }
+
+    async function handleFileSelect(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+
+      if (file.size > MAX_FILE_SIZE) {
+        setStatus("File too large", "danger");
+        infoText.textContent = "Upload a file under 20MB.";
+        return;
+      }
+
+      try {
+        setStatus("Reading file...", "info");
+        const text = await file.text();
+        currentText = text;
+        const tokens = parseTrainData(text);
+
+        const vocab = buildVocabulary(tokens);
+        const maxWords = Math.min(vocab.length, MAX_VOCAB);
+        outputText.value = "File loaded successfully. Press TRAIN to begin training.\n\n" +
+          "Loaded " + tokens.length + " tokens. Vocabulary size: " + maxWords + ".";
+        vocabChip.textContent = "Vocab: " + maxWords;
+        tokensChip.textContent = "Tokens: " + tokens.length;
+        lossChip.textContent = "Loss: n/a";
+
+        infoText.textContent = "Loaded training text from file. Training starts once you press Train.";
+        setStatus("Loaded", "success");
+      } catch (err) {
+        console.error(err);
+        setStatus("Error", "danger");
+        infoText.textContent = "Could not read the file. Try a plain text file or a smaller file.";
+      }
+    }
+
+    function ensureTrainingBundle(rawText) {
+      const tokens = parseTrainData(rawText || currentText || seedText.value || "");
+      const vocab = buildVocabulary(tokens);
+      const safeVocab = Math.max(2, Math.min(vocab.length, MAX_VOCAB));
+      const remap = new Map();
+      vocab.slice(0, safeVocab).forEach((word, i) => remap.set(word, i));
+      const indices = tokens.map((word) => remap.has(word) ? remap.get(word) : 0);
+      return { tokens, indices, vocabSize: safeVocab, remap };
+    }
+
+    async function trainFromCurrentData() {
+      if (isTraining) return;
+      isTraining = true;
+      trainButton.disabled = true;
+      generateButton.disabled = true;
+      resetButton.disabled = true;
+
+      try {
+        const rawText = currentText || seedText.value || "";
+        if (!rawText.trim()) {
+          throw new Error("No training text available.");
+        }
+
+        const { tokens, indices, vocabSize } = ensureTrainingBundle(rawText);
+        const model = new WordRNN(
+          vocabSize,
+          clamp(parseInt(hiddenSizeInput.value, 10), 16, 256),
+          clamp(parseFloat(learningRateInput.value), 0.001, 1.0)
+        );
+        currentModel = model;
+
+        const epochs = clamp(parseInt(epochsInput.value, 10), 1, 1000);
+        let lastLoss = null;
+
+        for (let epoch = 0; epoch < epochs; epoch++) {
+          let epochLoss = 0;
+          const sequence = indices.slice(0, Math.min(indices.length, 5000));
+          const chunkSize = 32;
+          for (let i = 0; i < sequence.length - 1; i += chunkSize) {
+            const chunk = sequence.slice(i, Math.min(i + chunkSize, sequence.length));
+            if (chunk.length < 2) continue;
+            epochLoss += model.trainSequence(chunk);
+          }
+
+          lastLoss = epochLoss / Math.max(1, Math.ceil((sequence.length - 1) / chunkSize));
+          const progress = ((epoch + 1) / epochs) * 100;
+          infoText.textContent = "Training... " + Math.round(progress) + "% complete";
+          lossChip.textContent = "Loss: " + lastLoss.toFixed(4);
+          vocabChip.textContent = "Vocab: " + vocabSize;
+          tokensChip.textContent = "Tokens: " + tokens.length;
+          setStatus("Training " + (epoch + 1) + "/" + epochs, "info");
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+
+        outputText.value = "Training complete.\n\n" +
+          "The model has learned a compact word-level representation and is ready to generate text.\n\n" +
+          "Seed text used: " + (seedText.value || "the world was") + "\n\n" +
+          "Loss: " + (lastLoss !== null ? lastLoss.toFixed(4) : "n/a");
+
+        infoText.textContent = "Training complete. You can generate from the seed text or try a new prompt.";
+        setStatus("Complete", "success");
+      } catch (err) {
+        console.error(err);
+        setStatus("Training failed", "danger");
+        infoText.textContent = err?.message || "Training failed.";
+        outputText.value = "Training failed.\n\n" + (err?.message || "");
+      } finally {
+        isTraining = false;
+        trainButton.disabled = false;
+        generateButton.disabled = false;
+        resetButton.disabled = false;
+      }
+    }
+
+    function generateText() {
+      if (!currentModel) {
+        setStatus("Model not ready", "warning");
+        infoText.textContent = "Train a model first or upload a text file.";
+        return;
+      }
+
+      const promptText = (seedText.value || currentText || "the world was").toLowerCase();
+      const promptTokens = tokenizeText(promptText);
+      const vocab = buildVocabulary(promptTokens.length ? promptTokens : tokenizeText(currentText || "the world was"));
+      const safeVocab = Math.max(2, Math.min(vocab.length, MAX_VOCAB));
+      const remap = new Map();
+      vocab.slice(0, safeVocab).forEach((word, i) => remap.set(word, i));
+
+      const promptIndices = promptTokens.map((word) => remap.has(word) ? remap.get(word) : 0);
+      const generationLength = clamp(parseInt(Math.max(20, promptTokens.length * 6), 10), 20, 200);
+      const temperature = clamp(parseFloat(temperatureInput.value), 0.1, 2.5);
+
+      const generatedIndices = currentModel.sampleFromPrompt(promptIndices.length ? promptIndices : [0], generationLength, temperature);
+      let text = "";
+      for (let i = 0; i < generatedIndices.length; i++) {
+        const idx = generatedIndices[i];
+        text += (vocab[idx] || "the") + (i < generatedIndices.length - 1 ? " " : "");
+      }
+
+      outputText.value = text;
+      setStatus("Generated", "success");
+      infoText.textContent = "Generated text using the trained model.";
+    }
+
+    function resetAll() {
+      currentModel = null;
+      currentText = "";
+      outputText.value = "";
+      fileInput.value = "";
+      seedText.value = "the world was";
+      vocabChip.textContent = "Vocab: 0";
+      tokensChip.textContent = "Tokens: 0";
+      lossChip.textContent = "Loss: n/a";
+      infoText.textContent = "Reset complete. Upload a file or type a prompt to begin again.";
+      setStatus("Ready", "neutral");
+    }
+
+    fileInput.addEventListener("change", handleFileSelect);
+    trainButton.addEventListener("click", trainFromCurrentData);
+    generateButton.addEventListener("click", generateText);
+    resetButton.addEventListener("click", resetAll);
+
+    seedText.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        generateText();
+      }
+    });
+  </script>
+</body>
+</html>
